@@ -51,12 +51,13 @@ pip install -r requirements.txt
 1. BLIP图像描述模型
 2. Stable Diffusion v1.5
 3. ControlNet Scribble模型
+4. gesture_recognizer模型
 
 或运行提供的脚本自动下载（如有）。
 
 ### 5. 运行应用
 ```bash
-python src/main.py
+python main.py
 ```
 
 
