@@ -1,0 +1,80 @@
+# .gitignore 文件内容
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+.venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project Specific
+# 模型文件很大，不要上传到GitHub
+models/
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.task
+
+# 生成的艺术作品
+assets/auto_doodle_art/
+
+# 日志文件
+logs/
+*.log
+
+# 配置文件（如果有敏感信息）
+config.ini
+.env
+*.env
+secrets.yaml
+
+# 数据库文件（如果有）
+*.db
+*.sqlite3
+
+# 大文件
+*.zip
+*.tar.gz
+*.7z
+
+# 临时文件
+temp/
+tmp/

@@ -1,0 +1,516 @@
+from pathlib import Path
+
+import pygame
+import cv2
+import numpy as np
+import sys
+import time
+
+from PIL import Image
+
+from src.core.gesture_detector import GestureDetector
+from src.core.canvas_manager import CanvasManager
+from src.core.brush_engine import BrushEngine
+from src.features.gesture_commands import GestureCommands
+from src.utils.visualizer import Visualizer
+from src.utils.coordinates import CoordinateMapper
+from src.features.custom_dialog import CustomDialog,OptionDialog
+from src.features.doodle_to_art_system import DoodleToArtConverter
+from src.features.dialog_manager import DialogManager
+import os
+
+
+class AirPaintingApp:
+    def __init__(self):
+        # 初始化Pygame
+
+        pygame.init()
+
+        # 屏幕设置
+        self.screen_width = 1600
+        self.screen_height = 900
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+        pygame.display.set_caption("手势控制空气绘画系统")
+
+
+
+
+        # 颜色定义
+        self.colors = {
+            'background': (240, 240, 240),
+            'panel': (220, 220, 220),
+            'text': (50, 50, 50),
+            'highlight': (70, 130, 180),
+            'pause_overlay': (0, 0, 0, 128)  # 半透明黑色
+        }
+
+        # 布局参数
+        self.camera_width = 640
+        self.camera_height = 480
+        self.canvas_width = 600
+        self.canvas_height = 400
+        self.panel_width = 100
+
+        # 修改
+        self.cursor_layer = pygame.Surface((self.canvas_width, self.canvas_height), flags=pygame.SRCALPHA)
+
+        # 状态变量
+        self.running = True
+        self.drawing_active = False
+        self.last_point = None
+        self.current_gesture = None
+        self.last_gesture_time = 0
+        self.gesture_cooldown = 0.5  # 手势冷却时间（秒）
+
+        # 新增
+        self.is_paused = False
+        self.dialog_manager = DialogManager(self.screen_width, self.screen_height)
+        self.last_camera_surface = None
+
+        # 字体
+        self.font = pygame.font.SysFont('simhei', 24)
+        self.small_font = pygame.font.SysFont('simhei', 18)
+
+        # 创建必要的目录
+        self.create_directories()
+
+        # 帧率控制
+        self.clock = pygame.time.Clock()
+        self.fps = 40
+        # 初始化模块
+        self.init_modules()
+
+    def init_modules(self):
+        """初始化所有系统模块"""
+        try:
+            # 初始化手势检测器
+            model_path = "models/gesture_recognizer.task"
+            if not os.path.exists(model_path):
+                print(f"警告: 模型文件 {model_path} 不存在")
+                # 这里可以添加下载默认模型的逻辑
+            self.gesture_detector = GestureDetector(model_path)
+
+            # 初始化画布管理器
+            self.canvas_manager = CanvasManager(self.canvas_width, self.canvas_height)
+
+            # 初始化笔刷引擎
+            self.brush_engine = BrushEngine()
+
+            # 初始化手势命令系统
+            self.gesture_commands = GestureCommands(self.canvas_manager, self.brush_engine)
+
+            # 初始化坐标转换器
+            self.coord_transformer = CoordinateMapper(
+                self.camera_width, self.camera_height,
+                self.canvas_width, self.canvas_height
+            )
+
+            # 初始化可视化器
+            self.visualizer = Visualizer(self.screen, self.font, self.small_font)
+
+            # 初始化摄像头
+            self.cap = cv2.VideoCapture(0)
+            if not self.cap.isOpened():
+                print("错误: 无法打开摄像头")
+                self.running = False
+            else:
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_width)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_height)
+
+            print("系统初始化完成")
+
+        except Exception as e:
+            print(f"初始化失败: {str(e)}")
+            self.running = False
+
+    def create_directories(self):
+        """创建必要的目录"""
+        directories = ["assets/saved_drawings", "models", "logs"]
+        for directory in directories:
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+                print(f"创建目录: {directory}")
+
+    def handle_events(self):
+        """处理Pygame事件"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+
+                # 处理对话框事件
+            if self.dialog_manager.is_active():
+                handled = self.dialog_manager.handle_event(event)
+                if handled:
+                    return  # 如果对话框处理了事件，跳过其他处理
+
+            elif event.type == pygame.KEYDOWN:
+                self.handle_keyboard(event.key)
+
+    def handle_keyboard(self, key):
+        """处理键盘输入"""
+        if key == pygame.K_ESCAPE:
+            self.running = False
+        elif key == pygame.K_c:
+            # 清空画布
+            self.canvas_manager.clear_canvas()
+            print("画布已清空")
+        elif key == pygame.K_s:
+            # 保存画布
+            filename = f"drawing_{int(time.time())}"
+            self.save_drawing_with_dialog()
+            print(f"画布已保存: {filename}")
+        elif key == pygame.K_1:
+            self.brush_engine.change_color('red')
+            print("笔刷颜色: 红色")
+        elif key == pygame.K_2:
+            self.brush_engine.change_color('blue')
+            print("笔刷颜色: 蓝色")
+        elif key == pygame.K_3:
+            self.brush_engine.change_color('green')
+            print("笔刷颜色: 绿色")
+        elif key == pygame.K_4:
+            self.brush_engine.change_color('black')
+            print("笔刷颜色: 黑色")
+        elif key == pygame.K_PLUS or key == pygame.K_EQUALS:
+            # 增大笔刷
+            current_size = self.brush_engine.brush.size
+            self.brush_engine.change_size(current_size + 2)
+            print(f"笔刷大小: {self.brush_engine.brush.size}")
+        elif key == pygame.K_MINUS:
+            # 减小笔刷
+            current_size = self.brush_engine.brush.size
+            self.brush_engine.change_size(current_size - 2)
+            print(f"笔刷大小: {self.brush_engine.brush.size}")
+
+    def save_drawing_with_dialog(self):
+        """保存画布并显示对话框"""
+        try:
+            # 暂停手势识别
+            self.is_paused = True
+
+            # 保存图片
+            filename = f"drawing_{int(time.time())}"
+            success = self.canvas_manager.save_canvas(filename)
+
+            if success:
+                # 显示确认对话框
+                self.dialog_manager.show_save_confirm(
+                    filename,
+                    self.on_dialog_finished
+                )
+            else:
+                print("保存失败")
+                self.is_paused = False
+
+        except Exception as e:
+            print(f"保存失败: {e}")
+            self.is_paused = False
+
+    def on_dialog_finished(self, convert_art, style=None):
+        """对话框完成回调"""
+        # 恢复手势识别
+        self.is_paused = False
+
+        if convert_art and style:
+            # 执行艺术化转换
+            self.handle_doodle_create(
+                f"assets/saved_drawings/{self.dialog_manager.saved_filename}.png",
+                style
+            )
+
+    def process_camera_frame(self):
+        """处理摄像头帧并进行手势识别"""
+        ret, frame = self.cap.read()
+        if not ret:
+            print("无法读取摄像头帧")
+            return None, None
+
+        # 水平翻转帧（镜像效果）
+        frame = cv2.flip(frame, 1)
+
+        # # 手势识别
+        # self.gesture_detector.recognize_gesture(frame)
+        # gesture_info = self.gesture_detector.get_gesture_info()
+        # 只有在未暂停时才进行手势识别
+        if not self.is_paused:
+            self.gesture_detector.recognize_gesture(frame)
+            gesture_info = self.gesture_detector.get_gesture_info()
+        else:
+            # 暂停时，不进行手势识别，但仍然返回一个空的gesture_info
+            gesture_info = None
+
+
+        self.cursor_layer.fill((0, 0, 0, 0))
+        # 在帧上绘制手势信息
+        if gesture_info:
+            frame=self.visualizer.draw_landmarks(frame, gesture_info)
+            # frame = self.gesture_detector.draw_landmarks_and_gesture(frame, gesture_info)
+            frame=self.visualizer.draw_gesture_info(frame, gesture_info)
+
+            if gesture_info['landmarks']:
+                landmarks=gesture_info['landmarks'][0]
+                index_tip=landmarks[8]
+                canvas_x,canvas_y=self.coord_transformer.camera_to_canvas(index_tip["x"],index_tip["y"])
+                frame=self.visualizer.draw_brush(self.brush_engine.brush.color,
+                                                 self.brush_engine.brush.size+20,canvas_x+self.camera_width,canvas_y+self.camera_height,self.cursor_layer,frame)
+
+                # 修改
+                self.screen.blit(self.cursor_layer, (0, 0))
+
+        else:
+            # 如果暂停，在画面上显示"PAUSED"
+            if self.is_paused:
+                cv2.putText(frame, "PAUSED", (50, 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+        return frame, gesture_info
+
+    def process_gesture_commands(self, gesture_info):
+        """处理手势命令"""
+        if not gesture_info or not gesture_info['gesture']:
+            return
+
+        current_time = time.time()
+        gesture = gesture_info['gesture'][0]
+        gesture_name = gesture['category_name']
+
+        # 手势冷却时间检查
+        if current_time - self.last_gesture_time < self.gesture_cooldown:
+            return
+
+        # 执行手势命令
+        result = self.gesture_commands.execute_command(gesture_name)
+        if result:
+            self.last_gesture_time = current_time
+            self.current_gesture = gesture_name
+            print(f"手势命令: {gesture_name} -> {result.message}")
+
+
+            if gesture_name == "Victory" and not self.is_paused:
+                self.save_drawing_with_dialog()
+
+    def process_drawing(self, gesture_info):
+        """处理绘画逻辑"""
+        if not gesture_info or not gesture_info['gesture'] or not gesture_info['landmarks'] or \
+                gesture_info['gesture'][0] is None:
+            self.drawing_active = False
+            self.last_point = None
+            return
+
+        gesture = gesture_info['gesture'][0]
+        landmarks = gesture_info['landmarks'][0]
+
+        # 获取食指指尖坐标（绘画点）
+        index_tip = landmarks[8]
+        canvas_x, canvas_y = self.coord_transformer.camera_to_canvas(
+            index_tip['x'], index_tip['y']
+        )
+
+        current_point = (canvas_x, canvas_y)
+
+        if gesture['category_name'] == 'Pointing_Up':
+            # 上指手势 - 开始/继续绘画
+            if not self.drawing_active:
+                # 开始新线条
+                self.drawing_active = True
+                self.canvas_manager.draw_point(canvas_x, canvas_y, self.brush_engine.brush)
+            elif self.last_point:
+                # 连接前后点形成连续线条
+                self.canvas_manager.draw_line(self.last_point, current_point, self.brush_engine.brush)
+
+            self.last_point = current_point
+        else:
+            # 其他手势 - 停止绘画
+            self.drawing_active = False
+            self.last_point = None
+
+    def convert_cv2_to_pygame(self, frame):
+        """将OpenCV帧转换为Pygame表面"""
+        # 水平翻转图像（镜像效果）
+        frame = cv2.flip(frame, 1)  # 1表示水平翻转
+        # 转换颜色空间 BGR -> RGB
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # 旋转和转置以适应Pygame坐标系统
+        frame_rgb = np.rot90(frame_rgb)
+        # 创建Pygame表面
+        return pygame.surfarray.make_surface(frame_rgb)
+
+    def draw_ui(self):
+        """绘制用户界面"""
+        # 清屏
+        self.screen.fill(self.colors['background'])
+
+        # 绘制摄像头区域背景
+        pygame.draw.rect(self.screen, (0, 0, 0), (20, 20, self.camera_width, self.camera_height))
+
+        # 绘制画布区域背景
+        pygame.draw.rect(self.screen, (122, 255, 255),
+                         (self.camera_width + 40, 250, self.canvas_width, self.canvas_height))
+
+        # 绘制控制面板背景
+        panel_x = self.camera_width + self.canvas_width + 60
+        pygame.draw.rect(self.screen, self.colors['panel'],
+                         (panel_x, 20, self.panel_width, self.screen_height - 40))
+
+        # 绘制分隔线
+        pygame.draw.line(self.screen, (200, 200, 200),
+                         (self.camera_width + 30, 0),
+                         (self.camera_width + 30, self.screen_height), 2)
+        pygame.draw.line(self.screen, (200, 200, 200),
+                         (panel_x - 10, 0),
+                         (panel_x - 10, self.screen_height), 2)
+
+        # 绘制标题
+        title = self.font.render("手势控制空气绘画系统", True, self.colors['text'])
+        self.screen.blit(title, (self.screen_width // 2 - title.get_width() // 2, 10))
+
+        # 绘制控制面板内容
+        y_offset = 40
+        panel_texts = [
+            "控制面板",
+            "-------------",
+            f"笔刷颜色: {self.get_color_name()}",
+            f"笔刷大小: {self.brush_engine.brush.size}",
+            "",
+            "手势命令:",
+            "- 上指: 绘画",
+            "- 张开手掌: 清空",
+            "- 握拳: 撤销",
+            "- 胜利手势: 保存",
+            "",
+            "键盘快捷键:",
+            "- ESC: 退出",
+            "- C: 清空画布",
+            "- S: 保存画布",
+            "- 1-4: 切换颜色",
+            "- +/-: 调整大小"
+        ]
+
+        for text in panel_texts:
+            if text:
+                text_surface = self.small_font.render(text, True, self.colors['text'])
+                self.screen.blit(text_surface, (panel_x + 10, y_offset))
+            y_offset += 25
+
+        # 绘制状态信息
+        status_text = f"状态: {'绘画中' if self.drawing_active else '待机'} | 手势: {self.current_gesture or '无'}"
+        status_surface = self.small_font.render(status_text, True, self.colors['text'])
+        self.screen.blit(status_surface, (20, self.camera_height + 40))
+
+    def get_color_name(self):
+        """获取当前颜色的名称"""
+        color = self.brush_engine.brush.color
+        for name, value in self.brush_engine.colors.items():
+            if value == color:
+                return name
+        return "自定义"
+
+    def update_display(self, camera_frame):
+        """更新显示"""
+        # 绘制UI框架
+        self.draw_ui()
+
+        # 显示摄像头画面
+        if camera_frame is not None:
+            camera_surface = self.convert_cv2_to_pygame(camera_frame)
+            self.screen.blit(camera_surface, (20, 20))
+
+            # 如果暂停，显示半透明遮罩
+            if self.is_paused:
+                pause_overlay = pygame.Surface((self.camera_width, self.camera_height), pygame.SRCALPHA)
+                pause_overlay.fill(self.colors['pause_overlay'])
+                self.screen.blit(pause_overlay, (20, 20))
+
+                # 显示"暂停"文字
+                pause_text = self.font.render("系统暂停", True, (255, 255, 255))
+                pause_rect = pause_text.get_rect(center=(20 + self.camera_width // 2,
+                                                         20 + self.camera_height // 2))
+                self.screen.blit(pause_text, pause_rect)
+
+        # 显示画布
+        canvas_surface = self.canvas_manager.canvas
+        self.screen.blit(canvas_surface, (self.camera_width + 40, 250))
+
+        #显示笔刷预览
+        self.visualizer.draw_brush_preview(self.brush_engine.brush,(self.camera_width+20+self.canvas_width//2,100))
+
+
+
+        # 更新显示
+        pygame.display.flip()
+
+        # 绘制对话框（如果有）
+        if self.dialog_manager.is_active():
+            self.dialog_manager.draw(self.screen)
+            pygame.display.flip()  # 确保对话框立即显示
+
+    def handle_doodle_create(self, filename, style):
+        """处理涂鸦艺术化转换"""
+        try:
+            converter = DoodleToArtConverter()
+            doodle_img = Image.open(filename)
+            creations, processed_doodle = converter.auto_generate_from_doodle(doodle_img, num_creations=1, style=style)
+            converter.save_and_display_results(processed_doodle, creations)
+            print(f"艺术化转换完成，风格: {style}")
+        except Exception as e:
+            print(f"艺术化转换失败: {e}")
+
+
+    def run(self):
+        """主循环"""
+        print("启动手势控制空气绘画系统...")
+        print("按ESC键退出程序")
+
+        while self.running:
+            # 处理事件
+            self.handle_events()
+            # 如果有活动对话框，只更新对话框
+            if self.dialog_manager.is_active():
+                # 绘制背景（但不更新摄像头）
+                self.draw_ui()
+                if hasattr(self, 'last_camera_surface'):
+                    self.screen.blit(self.last_camera_surface, (20, 20))
+
+                # 绘制对话框
+                self.dialog_manager.draw(self.screen)
+
+
+                pygame.display.flip()
+            else:
+
+                # 处理摄像头帧和手势识别
+                camera_frame, gesture_info = self.process_camera_frame()
+
+                if camera_frame is not None:
+                    # 保存最后一帧用于对话框显示
+                    self.last_camera_surface = self.convert_cv2_to_pygame(camera_frame)
+
+                    # 只有在未暂停时才处理手势命令和绘画
+                    if not self.is_paused:
+                        self.process_gesture_commands(gesture_info)
+                        self.process_drawing(gesture_info)
+
+                    # 更新显示
+                    self.update_display(camera_frame)
+
+            # 控制帧率
+            self.clock.tick(self.fps)
+
+        self.cleanup()
+
+    def cleanup(self):
+        """清理资源"""
+        print("正在退出程序...")
+        if hasattr(self, 'cap'):
+            self.cap.release()
+        pygame.quit()
+        sys.exit()
+
+
+def main():
+    app = AirPaintingApp()
+    app.run()
+
+
+if __name__ == "__main__":
+    main()
