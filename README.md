@@ -77,18 +77,9 @@ python main.py
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启一个 Pull Request
 
-## 许可证
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
-
-## 联系方式
-
-- 项目维护者：[您的名字]
-- 邮箱：[您的邮箱]
-- 项目链接：[GitHub仓库地址]
 
 ## 致谢
 
 - [Hugging Face](https://huggingface.co/) - 提供优秀的AI模型
-- [PyQt5](https://www.riverbankcomputing.com/software/pyqt/) - GUI框架
 - [MediaPipe](https://google.github.io/mediapipe/) - 手势识别方案
