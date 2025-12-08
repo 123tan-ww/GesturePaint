@@ -71,6 +71,9 @@ class AirPaintingApp:
         self.font = pygame.font.SysFont('simhei', 24)
         self.small_font = pygame.font.SysFont('simhei', 18)
 
+        # 图标
+        self.gesture_icons()
+
         # 创建必要的目录
         self.create_directories()
 
@@ -335,6 +338,17 @@ class AirPaintingApp:
         # 创建Pygame表面
         return pygame.surfarray.make_surface(frame_rgb)
 
+    def gesture_icons(self):
+        self.gesture_icons = {
+            "Victory":["assets/icons/victory.png",(self.camera_width+self.canvas_width+60,265)],
+            "Closed_Fist":["assets/icons/closed_fist.png",(self.camera_width+self.canvas_width+60,240)],
+            "Open_Palm":["assets/icons/open_arm.png",(self.camera_width+self.canvas_width+60,215)],
+            "Pointing_UP":["assets/icons/pointing_up.png",(self.camera_width+self.canvas_width+60,190)],
+            "Thumb_Up":["assets/icons/thumb_up.png",(self.camera_width+self.canvas_width+60,290)],
+            "Thumb_Down":["assets/icons/thumb_down.png",(self.camera_width+self.canvas_width+60,315)],
+        }
+
+
     def draw_ui(self):
         """绘制用户界面"""
         # 清屏
@@ -377,6 +391,8 @@ class AirPaintingApp:
             "- 张开手掌: 清空",
             "- 握拳: 撤销",
             "- 胜利手势: 保存",
+            "- 大拇指朝上: 增大笔刷",
+            "- 大拇指朝下: 减小笔刷",
             "",
             "键盘快捷键:",
             "- ESC: 退出",
@@ -391,6 +407,10 @@ class AirPaintingApp:
                 text_surface = self.small_font.render(text, True, self.colors['text'])
                 self.screen.blit(text_surface, (panel_x + 10, y_offset))
             y_offset += 25
+
+        for _,[icon,pos] in self.gesture_icons.items():
+            self.screen.blit(pygame.transform.scale(pygame.image.load(icon).convert_alpha(), (20,20)),pos)
+
 
         # 绘制状态信息
         status_text = f"状态: {'绘画中' if self.drawing_active else '待机'} | 手势: {self.current_gesture or '无'}"
