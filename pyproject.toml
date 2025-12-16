@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gesturepaint"
+version = "0.1.0"
+description = "GesturePaint - 手势绘画与AI艺术生成"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "123tan-ww"}
+]
+dependencies = [
+    "diffusers==0.35.2",
+    "huggingface-hub==0.36.0",
+    "matplotlib==3.9.4",
+    "matplotlib-inline==0.2.1",
+    "mediapipe==0.10.21",
+    "numpy==1.26.4",
+    "opencv-contrib-python==4.11.0.86",
+    "pillow==11.3.0",
+    "pygame==2.6.1",
+    "pygame_gui==0.6.13",
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    "tqdm==4.67.1",
+    "transformers==4.57.1",
+]
+
+[project.urls]
+Repository = "https://github.com/123tan-ww/GesturePaint"

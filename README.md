@@ -25,7 +25,7 @@ GesturePaint 是一个结合手势识别和AI艺术生成的多功能绘画应�
 
 ### 1. 克隆项目
 ```bash
-git clone https://github.com/您的用户名/GesturePaint.git
+git clone https://github.com/123tan-ww/GesturePaint.git
 cd GesturePaint
 ```
 
@@ -53,7 +53,10 @@ pip install -r requirements.txt
 3. ControlNet Scribble模型
 4. gesture_recognizer模型
 
-或运行提供的脚本自动下载（如有）。
+或运行提供的脚本自动下载。
+```bash
+python download_models.py
+```
 
 ### 5. 运行应用
 ```bash
