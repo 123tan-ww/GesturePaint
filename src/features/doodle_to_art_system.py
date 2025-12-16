@@ -132,18 +132,24 @@ class DoodleToArtConverter:
                 "   - Stable Diffusion: E:/huggingface_cache/models--runwayml--stable-diffusion-v1-5/snapshots/xxx 到 models/stable-diffusion-v1-5/")
             raise FileNotFoundError("模型文件不存在，请先下载并复制模型到项目目录")
 
-    def auto_generate_from_doodle(self, doodle_image, num_creations=6,style="vibrant pop art style"):
+    def auto_generate_from_doodle(self, doodle_image, num_creations=6, style="vibrant pop art style", progress_callback=None):
         """
         完全自动化：从涂鸦到多种创意作品
         """
         print("开始自动化创意生成流程...")
+        if progress_callback:
+            progress_callback(0, "开始初始化...")
 
         # 1. 分析涂鸦内容
         print("步骤1: 分析涂鸦内容...")
+        if progress_callback:
+            progress_callback(5, "正在分析涂鸦内容...")
         prompt = self.auto_analyze_doodle(doodle_image)
 
         # 2. 预处理涂鸦
         print("步骤2: 预处理涂鸦...")
+        if progress_callback:
+            progress_callback(10, "正在预处理图像...")
         control_image = self.preprocess_doodle(doodle_image)
 
         # 3. 生成多种创意变体
@@ -152,12 +158,27 @@ class DoodleToArtConverter:
 
         for i in range(num_creations):
             print(f"  生成作品 {i + 1}/{num_creations}...")
+            if progress_callback:
+                progress_callback(10 + int(90 * i / num_creations), f"正在生成作品 {i + 1}/{num_creations}...")
 
             # 为每个变体使用不同的风格增强
             # style_enhanced_prompt = self.add_random_style(prompt)
             style_enhanced_prompt = self.add_style(prompt,style)
 
             generator = torch.Generator(device=self.device).manual_seed(i * 1000)
+            
+            # 定义内部回调函数来更新进度，每完成一步调用一次call_back
+            def pipe_callback(step, timestep, latents):
+                if progress_callback:
+                    # 总步数为20，与num_inference_steps保持一致
+                    total_steps = 20
+                    # 计算当前生成的进度 (0-1)
+                    current_gen_progress = step / total_steps
+                    # 映射到总进度 (0-100)
+                    base_progress = 10 + int(90 * i / num_creations)
+                    step_progress = int(90 * current_gen_progress / num_creations)
+                    #更新进度情况
+                    progress_callback(base_progress + step_progress, f"正在绘制... {int(current_gen_progress*100)}%")
 
             image = self.pipe(
                 prompt=style_enhanced_prompt,
@@ -166,12 +187,17 @@ class DoodleToArtConverter:
                 guidance_scale=7.5,
                 controlnet_conditioning_scale=1.0,
                 generator=generator,
-                num_inference_steps=20,
+                num_inference_steps=20, #分20步生成图片
                 width=512,
-                height=512
+                height=512,
+                callback=pipe_callback,
+                callback_steps=1
             ).images[0]
 
             creations.append((image, style_enhanced_prompt))
+            
+        if progress_callback:
+            progress_callback(100, "生成完成！")
 
         return creations, control_image
 

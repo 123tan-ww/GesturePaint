@@ -5,6 +5,8 @@ import cv2
 import numpy as np
 import sys
 import time
+import threading
+import queue
 
 from PIL import Image
 
@@ -52,7 +54,7 @@ class AirPaintingApp:
         self.panel_width = 100
 
         # 修改
-        self.cursor_layer = pygame.Surface((self.canvas_width, self.canvas_height), flags=pygame.SRCALPHA)
+        self.cursor_layer = pygame.Surface((self.canvas_width, self.canvas_height), flags=pygame.SRCALPHA) #启用透明通道
 
         # 状态变量
         self.running = True
@@ -66,13 +68,19 @@ class AirPaintingApp:
         self.is_paused = False
         self.dialog_manager = DialogManager(self.screen_width, self.screen_height)
         self.last_camera_surface = None
+        
+        # 艺术生成任务管理
+        self.processing_tasks = [] # 存储所有任务状态，用于UI显示
+        self.task_queue = queue.Queue() # 任务队列
+        # 启动后台处理线程
+        threading.Thread(target=self.art_worker, daemon=True).start()
 
         # 字体
         self.font = pygame.font.SysFont('simhei', 24)
         self.small_font = pygame.font.SysFont('simhei', 18)
 
         # 图标
-        self.gesture_icons()
+        self.load_gesture_icons()
 
         # 创建必要的目录
         self.create_directories()
@@ -215,11 +223,92 @@ class AirPaintingApp:
         self.is_paused = False
 
         if convert_art and style:
-            # 执行艺术化转换
-            self.handle_doodle_create(
-                f"assets/saved_drawings/{self.dialog_manager.saved_filename}.png",
-                style
+            # 创建新任务
+            filename = f"assets/saved_drawings/{self.dialog_manager.saved_filename}.png"
+            
+            new_task = {
+                "id": int(time.time() * 1000),
+                "filename": self.dialog_manager.saved_filename,
+                "full_path": filename,
+                "style": style,
+                "progress": 0,
+                "status": "等待处理...",
+                "thumbnail": None,
+                "finished": False,
+                "remove_time": 0
+            }
+            
+            # 加载缩略图
+            try:
+                if os.path.exists(filename):
+                    img = pygame.image.load(filename).convert()
+                    new_task["thumbnail"] = pygame.transform.scale(img, (100, 66))
+            except Exception as e:
+                print(f"加载缩略图失败: {e}")
+
+            # 添加到列表和队列
+            self.processing_tasks.append(new_task)
+            self.task_queue.put(new_task)
+
+    def art_worker(self):
+        """后台处理线程：串行处理生成任务"""
+        converter = None
+        while True:
+            try:
+                # 获取任务
+                task = self.task_queue.get()
+                
+                # 如果还没有加载模型，先加载
+                if converter is None:
+                    task["status"] = "正在加载AI模型(首次运行较慢)..."
+                    try:
+                        converter = DoodleToArtConverter()
+                    except Exception as e:
+                        print(f"模型加载失败: {e}")
+                        task["status"] = "模型加载失败"
+                        task["finished"] = True
+                        task["remove_time"] = time.time() + 5
+                        self.task_queue.task_done()
+                        continue
+
+                # 执行任务
+                self.run_art_generation_task(converter, task)
+                self.task_queue.task_done()
+                
+            except Exception as e:
+                print(f"Worker error: {e}")
+
+    def run_art_generation_task(self, converter, task):
+        """执行单个艺术生成任务"""
+        filename = task["full_path"]
+        style = task["style"]
+        
+        try:
+            # 定义进度回调
+            def progress_callback(progress, status):
+                task["progress"] = progress
+                task["status"] = status
+                
+            doodle_img = Image.open(filename)
+            creations, processed_doodle = converter.auto_generate_from_doodle(
+                doodle_img, 
+                num_creations=1, 
+                style=style,
+                progress_callback=progress_callback
             )
+            converter.save_and_display_results(processed_doodle, creations)
+            print(f"艺术化转换完成，风格: {style}")
+            
+            task["status"] = "完成"
+            task["progress"] = 100
+            task["finished"] = True
+            task["remove_time"] = time.time() + 5 # 5秒后消失
+            
+        except Exception as e:
+            print(f"艺术化转换失败: {e}")
+            task["status"] = f"失败: {str(e)[:15]}..."
+            task["finished"] = True
+            task["remove_time"] = time.time() + 5
 
     def process_camera_frame(self):
         """处理摄像头帧并进行手势识别"""
@@ -338,15 +427,30 @@ class AirPaintingApp:
         # 创建Pygame表面
         return pygame.surfarray.make_surface(frame_rgb)
 
-    def gesture_icons(self):
-        self.gesture_icons = {
-            "Victory":["assets/icons/victory.png",(self.camera_width+self.canvas_width+60,265)],
-            "Closed_Fist":["assets/icons/closed_fist.png",(self.camera_width+self.canvas_width+60,240)],
-            "Open_Palm":["assets/icons/open_arm.png",(self.camera_width+self.canvas_width+60,215)],
-            "Pointing_UP":["assets/icons/pointing_up.png",(self.camera_width+self.canvas_width+60,190)],
-            "Thumb_Up":["assets/icons/thumb_up.png",(self.camera_width+self.canvas_width+60,290)],
-            "Thumb_Down":["assets/icons/thumb_down.png",(self.camera_width+self.canvas_width+60,315)],
+    def load_gesture_icons(self):
+        """加载手势图标资源"""
+        icons_config = {
+            "Victory": ["assets/icons/victory.png", (self.camera_width + self.canvas_width + 60, 265)],
+            "Closed_Fist": ["assets/icons/closed_fist.png", (self.camera_width + self.canvas_width + 60, 240)],
+            "Open_Palm": ["assets/icons/open_arm.png", (self.camera_width + self.canvas_width + 60, 215)],
+            "Pointing_UP": ["assets/icons/pointing_up.png", (self.camera_width + self.canvas_width + 60, 190)],
+            "Thumb_Up": ["assets/icons/thumb_up.png", (self.camera_width + self.canvas_width + 60, 290)],
+            "Thumb_Down": ["assets/icons/thumb_down.png", (self.camera_width + self.canvas_width + 60, 315)],
         }
+        
+        self.gesture_icons_data = {}
+        for name, (path, pos) in icons_config.items():
+            try:
+                if os.path.exists(path):
+                    print(f"正在加载图标: {name} ({path})...")
+                    image = pygame.image.load(path).convert_alpha()
+                    scaled_image = pygame.transform.scale(image, (20, 20))
+                    self.gesture_icons_data[name] = (scaled_image, pos)
+                    print(f"成功加载: {name}")
+                else:
+                    print(f"警告: 图标文件不存在 {path}")
+            except Exception as e:
+                print(f"加载图标失败 {name}: {e}")
 
 
     def draw_ui(self):
@@ -399,7 +503,9 @@ class AirPaintingApp:
             "- C: 清空画布",
             "- S: 保存画布",
             "- 1-4: 切换颜色",
-            "- +/-: 调整大小"
+            "- +/-: 调整大小",
+            "-------------",
+            "一次最多显示三个任务"
         ]
 
         for text in panel_texts:
@@ -408,14 +514,70 @@ class AirPaintingApp:
                 self.screen.blit(text_surface, (panel_x + 10, y_offset))
             y_offset += 25
 
-        for _,[icon,pos] in self.gesture_icons.items():
-            self.screen.blit(pygame.transform.scale(pygame.image.load(icon).convert_alpha(), (20,20)),pos)
+        if hasattr(self, 'gesture_icons_data'):
+            for _, (icon_surface, pos) in self.gesture_icons_data.items():
+                self.screen.blit(icon_surface, pos)
 
 
         # 绘制状态信息
         status_text = f"状态: {'绘画中' if self.drawing_active else '待机'} | 手势: {self.current_gesture or '无'}"
         status_surface = self.small_font.render(status_text, True, self.colors['text'])
         self.screen.blit(status_surface, (20, self.camera_height + 40))
+
+        # 绘制艺术生成任务列表
+        # 清理已完成并超时的任务
+        current_time = time.time()
+        self.processing_tasks = [t for t in self.processing_tasks if not (t["finished"] and current_time > t["remove_time"])]
+
+        if self.processing_tasks:
+            panel_height = 110
+            panel_width = 400
+            base_x = 20
+            base_y = self.screen_height - panel_height - 10
+            
+            # 倒序遍历，最新的显示在最下面（或者最上面，这里选择堆叠显示）
+            # 假设最多显示3个，避免遮挡太多
+            visible_tasks = self.processing_tasks[:3]
+            
+            for index, task in enumerate(visible_tasks):
+                # 计算每个面板的位置，向上堆叠
+                panel_y = base_y - (index * (panel_height + 10))
+                panel_x = base_x
+                
+                # 背景
+                pygame.draw.rect(self.screen, (245, 245, 245), (panel_x, panel_y, panel_width, panel_height))
+                pygame.draw.rect(self.screen, (200, 200, 200), (panel_x, panel_y, panel_width, panel_height), 1)
+                
+                # 缩略图
+                if task["thumbnail"]:
+                    self.screen.blit(task["thumbnail"], (panel_x + 10, panel_y + 10))
+                
+                # 文本信息
+                text_x = panel_x + 120
+                title_surf = self.small_font.render("艺术创作任务", True, (0, 0, 0))
+                self.screen.blit(title_surf, (text_x, panel_y + 10))
+                
+                name_surf = self.small_font.render(f"文件: {task['filename']}", True, (100, 100, 100))
+                self.screen.blit(name_surf, (text_x, panel_y + 35))
+                
+                style_surf = self.small_font.render(f"风格: {task['style']}", True, (100, 100, 100))
+                self.screen.blit(style_surf, (text_x, panel_y + 55))
+                
+                status_color = (0, 120, 215) if not task["finished"] else (0, 200, 0)
+                status_surf = self.small_font.render(f"进度: {task['status']}", True, status_color)
+                self.screen.blit(status_surf, (text_x, panel_y + 75))
+                
+                # 进度条
+                bar_width = panel_width - 130
+                bar_height = 6
+                bar_x = text_x
+                bar_y = panel_y + 100
+                
+                # 进度条背景
+                pygame.draw.rect(self.screen, (220, 220, 220), (bar_x, bar_y, bar_width, bar_height))
+                # 进度条前景
+                progress_width = int(bar_width * (task["progress"] / 100))
+                pygame.draw.rect(self.screen, status_color, (bar_x, bar_y, progress_width, bar_height))
 
     def get_color_name(self):
         """获取当前颜色的名称"""
