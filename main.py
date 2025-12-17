@@ -13,6 +13,8 @@ from PIL import Image
 from src.core.gesture_detector import GestureDetector
 from src.core.canvas_manager import CanvasManager
 from src.core.brush_engine import BrushEngine
+from src.features.face_detector import FaceDetector
+from src.features.face_swapper import FaceSwapper
 from src.features.gesture_commands import GestureCommands
 from src.utils.visualizer import Visualizer
 from src.utils.coordinates import CoordinateMapper
@@ -101,6 +103,9 @@ class AirPaintingApp:
                 # 这里可以添加下载默认模型的逻辑
             self.gesture_detector = GestureDetector(model_path)
 
+            # self.face_detector = FaceDetector()
+
+
             # 初始化画布管理器
             self.canvas_manager = CanvasManager(self.canvas_width, self.canvas_height)
 
@@ -118,6 +123,8 @@ class AirPaintingApp:
 
             # 初始化可视化器
             self.visualizer = Visualizer(self.screen, self.font, self.small_font)
+
+            self.face_swapper = FaceSwapper(self.gesture_commands.current_face_source)
 
             # 初始化摄像头
             self.cap = cv2.VideoCapture(0)
@@ -327,6 +334,14 @@ class AirPaintingApp:
         if not self.is_paused:
             self.gesture_detector.recognize_gesture(frame)
             gesture_info = self.gesture_detector.get_gesture_info()
+            # self.face_detector.detect_face(frame)
+            # self.face_detector.draw_face(frame,"/assets/avatar_sticker/avataaars.png")
+
+            swapped_frame=self.face_swapper.detect_and_swap(frame,self.gesture_commands.current_face_source)
+            if swapped_frame is not None:
+                frame=swapped_frame
+
+
         else:
             # 暂停时，不进行手势识别，但仍然返回一个空的gesture_info
             gesture_info = None
@@ -349,11 +364,15 @@ class AirPaintingApp:
                 # 修改
                 self.screen.blit(self.cursor_layer, (0, 0))
 
+
+
         else:
             # 如果暂停，在画面上显示"PAUSED"
             if self.is_paused:
                 cv2.putText(frame, "PAUSED", (50, 50),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+
 
         return frame, gesture_info
 
@@ -380,6 +399,7 @@ class AirPaintingApp:
 
             if gesture_name == "Victory" and not self.is_paused:
                 self.save_drawing_with_dialog()
+
 
     def process_drawing(self, gesture_info):
         """处理绘画逻辑"""
@@ -436,6 +456,7 @@ class AirPaintingApp:
             "Pointing_UP": ["assets/icons/pointing_up.png", (self.camera_width + self.canvas_width + 60, 190)],
             "Thumb_Up": ["assets/icons/thumb_up.png", (self.camera_width + self.canvas_width + 60, 290)],
             "Thumb_Down": ["assets/icons/thumb_down.png", (self.camera_width + self.canvas_width + 60, 315)],
+            "ILoveYou": ["assets/icons/finger_heart.png", (self.camera_width + self.canvas_width + 60, 340)],
         }
         
         self.gesture_icons_data = {}
@@ -491,12 +512,13 @@ class AirPaintingApp:
             f"笔刷大小: {self.brush_engine.brush.size}",
             "",
             "手势命令:",
-            "- 上指: 绘画",
-            "- 张开手掌: 清空",
-            "- 握拳: 撤销",
-            "- 胜利手势: 保存",
-            "- 大拇指朝上: 增大笔刷",
-            "- 大拇指朝下: 减小笔刷",
+            "  上指: 绘画",
+            "  张开手掌: 清空",
+            "  握拳: 撤销",
+            "  胜利手势: 保存",
+            "  大拇指朝上: 增大笔刷",
+            "  大拇指朝下: 减小笔刷",
+            "  比心手势：切换源头像",
             "",
             "键盘快捷键:",
             "- ESC: 退出",

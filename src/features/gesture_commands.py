@@ -16,12 +16,29 @@ class GestureCommands:
             "Victory":self.save_drawing,
             "Thumb_Up":self.increase_brush_size,
             "Thumb_Down":self.decrease_brush_size,
-            "Pointing_Up":self.start_drawing
+            "Pointing_Up":self.start_drawing,
+            "ILoveYou":self.change_face_source
         }
         self.canvas_manager = canvas_manager
         self.brush_engine= brush_engine
         self.last_command_time = {}  # 防抖处理
         self.command_cooldown = 1.0  # 命令冷却时间
+
+
+        self.face_sources = [
+            "E:/GesturePaint/assets/avatar_sticker/img1.png",
+            "E:/GesturePaint/assets/avatar_sticker/img2.png",
+            "E:/GesturePaint/assets/avatar_sticker/img3.png",
+            "E:/GesturePaint/assets/avatar_sticker/img4.jpeg",
+            "E:/GesturePaint/assets/avatar_sticker/img5.webp",
+            "E:/GesturePaint/assets/avatar_sticker/img6.webp",
+            "E:/GesturePaint/assets/avatar_sticker/img7.webp",
+            None
+        ]
+
+        self.current_face_source_index = 4
+        self.face_source_size=len(self.face_sources)
+        self.current_face_source = self.face_sources[self.current_face_source_index]
 
 
 
@@ -99,3 +116,10 @@ class GestureCommands:
     def start_drawing(self, landmarks=None):
         """开始绘画（上指手势）"""
         return CommandResult(True, "开始绘画")
+
+    def change_face_source(self,landmarks=None):
+        self.current_face_source_index += 1
+        if self.current_face_source_index >= self.face_source_size:
+            self.current_face_source_index = 0
+        self.current_face_source = self.face_sources[self.current_face_source_index]
+
