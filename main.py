@@ -8,6 +8,8 @@ import time
 import threading
 import queue
 
+from src.utils.SuppressStderr import SuppressStderr
+
 from PIL import Image
 
 from src.core.gesture_detector import GestureDetector
@@ -101,7 +103,10 @@ class AirPaintingApp:
             if not os.path.exists(model_path):
                 print(f"警告: 模型文件 {model_path} 不存在")
                 # 这里可以添加下载默认模型的逻辑
-            self.gesture_detector = GestureDetector(model_path)
+            
+            # 使用SuppressStderr屏蔽MediaPipe初始化时的底层日志
+            with SuppressStderr():
+                self.gesture_detector = GestureDetector(model_path)
 
             # self.face_detector = FaceDetector()
 
@@ -332,6 +337,9 @@ class AirPaintingApp:
         # gesture_info = self.gesture_detector.get_gesture_info()
         # 只有在未暂停时才进行手势识别
         if not self.is_paused:
+            # 注意：不能在这里使用SuppressStderr，因为它会修改全局文件描述符
+            # 当后台线程(art_worker)同时尝试打印日志或加载模型时，会导致[WinError 1]冲突崩溃
+            # 这里只能忍受这条日志了
             self.gesture_detector.recognize_gesture(frame)
             gesture_info = self.gesture_detector.get_gesture_info()
             # self.face_detector.detect_face(frame)
@@ -563,6 +571,7 @@ class AirPaintingApp:
             
             for index, task in enumerate(visible_tasks):
                 # 计算每个面板的位置，向上堆叠
+                # 倒序索引，让最新的(index=len-1)显示在最下面(base_y)
                 panel_y = base_y - (index * (panel_height + 10))
                 panel_x = base_x
                 
