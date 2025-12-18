@@ -14,6 +14,10 @@ os.environ['TRANSFORMERS_CACHE'] = ''
 import torch
 import cv2
 import numpy as np
+import warnings
+# 忽略diffusers的FutureWarning，因为新版API(callback_on_step_end)和环境还不兼容我没法改
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 from datetime import datetime
 from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt

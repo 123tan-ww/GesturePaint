@@ -86,27 +86,32 @@ class CustomDialog:
         self.cancel_hovered = False
 
     def wrap_text(self, text, font, max_width):
-        """将文本换行以适应最大宽度"""
-        words = text.split(' ')
+        """将文本换行以适应最大宽度，支持显式换行符"""
         lines = []
-        current_line = []
+        # 1. 首先按显式换行符分割段落
+        paragraphs = text.split('\n')
 
-        for word in words:
-            # 测试当前行加上新单词后的宽度
-            test_line = ' '.join(current_line + [word])
-            test_width, _ = font.size(test_line)
+        for paragraph in paragraphs:
+            # 2. 对每个段落进行自动换行处理
+            words = paragraph.split(' ')
+            current_line = []
 
-            if test_width <= max_width:
-                current_line.append(word)
-            else:
-                # 如果当前行不为空，则添加到行列表中
-                if current_line:
-                    lines.append(' '.join(current_line))
-                current_line = [word]
+            for word in words:
+                # 测试当前行加上新单词后的宽度
+                test_line = ' '.join(current_line + [word])
+                test_width, _ = font.size(test_line)
 
-        # 添加最后一行
-        if current_line:
-            lines.append(' '.join(current_line))
+                if test_width <= max_width:
+                    current_line.append(word)
+                else:
+                    # 如果当前行不为空，则添加到行列表中
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    current_line = [word]
+
+            # 添加最后一行
+            if current_line:
+                lines.append(' '.join(current_line))
 
         return lines
 

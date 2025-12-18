@@ -1,3 +1,9 @@
+import os
+# 屏蔽底层C++库MediaPipe打印的繁琐的日志信息，防止控制台看得眼花缭乱
+# 在导入任何其他库之前就设置好
+os.environ["GLOG_minloglevel"] = "2"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 from pathlib import Path
 
 import pygame
@@ -7,6 +13,8 @@ import sys
 import time
 import threading
 import queue
+
+from src.utils.SuppressStderr import SuppressStderr
 
 from PIL import Image
 
@@ -99,7 +107,10 @@ class AirPaintingApp:
             if not os.path.exists(model_path):
                 print(f"警告: 模型文件 {model_path} 不存在")
                 # 这里可以添加下载默认模型的逻辑
-            self.gesture_detector = GestureDetector(model_path)
+            
+            # 使用SuppressStderr屏蔽MediaPipe初始化时的底层日志
+            with SuppressStderr():
+                self.gesture_detector = GestureDetector(model_path)
 
             # 初始化画布管理器
             self.canvas_manager = CanvasManager(self.canvas_width, self.canvas_height)
@@ -325,6 +336,9 @@ class AirPaintingApp:
         # gesture_info = self.gesture_detector.get_gesture_info()
         # 只有在未暂停时才进行手势识别
         if not self.is_paused:
+            # 注意：不能在这里使用SuppressStderr，因为它会修改全局文件描述符
+            # 当后台线程(art_worker)同时尝试打印日志或加载模型时，会导致[WinError 1]冲突崩溃
+            # 这里只能忍受这条日志了
             self.gesture_detector.recognize_gesture(frame)
             gesture_info = self.gesture_detector.get_gesture_info()
         else:
@@ -503,9 +517,7 @@ class AirPaintingApp:
             "- C: 清空画布",
             "- S: 保存画布",
             "- 1-4: 切换颜色",
-            "- +/-: 调整大小",
-            "-------------",
-            "一次最多显示三个任务"
+            "- +/-: 调整大小"
         ]
 
         for text in panel_texts:
@@ -530,18 +542,20 @@ class AirPaintingApp:
         self.processing_tasks = [t for t in self.processing_tasks if not (t["finished"] and current_time > t["remove_time"])]
 
         if self.processing_tasks:
-            panel_height = 110
+            panel_height = 120
             panel_width = 400
             base_x = 20
-            base_y = self.screen_height - panel_height - 10
+            base_y = self.screen_height - panel_height - 20
             
             # 倒序遍历，最新的显示在最下面（或者最上面，这里选择堆叠显示）
             # 假设最多显示3个，避免遮挡太多
-            visible_tasks = self.processing_tasks[:3]
+            visible_tasks = self.processing_tasks[0:2]
             
-            for index, task in enumerate(visible_tasks):
+            for i, task in enumerate(visible_tasks):
                 # 计算每个面板的位置，向上堆叠
-                panel_y = base_y - (index * (panel_height + 10))
+                # 倒序索引，让最新的(index=len-1)显示在最下面(base_y)
+                reverse_index = len(visible_tasks) - 1 - i
+                panel_y = base_y - (reverse_index * (panel_height + 10))
                 panel_x = base_x
                 
                 # 背景
